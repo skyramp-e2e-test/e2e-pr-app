@@ -31,3 +31,15 @@ docker compose up --build
 ```
 
 Then open http://localhost:3000. To stop the app and delete the database volume: `docker compose down -v`.
+
+## Lint and tests
+
+Requires Node.js 18 or newer. The unit tests use Node's built-in test runner and need no database.
+
+```bash
+npm ci
+npm run lint
+npm test
+```
+
+`.github/workflows/ci.yml` runs both on every pull request.
