@@ -62,6 +62,65 @@ test('POST /api/items creates an item with the trimmed name', async () => {
   });
 });
 
+test('POST /api/items rejects names over 50 characters and writes nothing', async () => {
+  for (const name of ['a'.repeat(51), 'a'.repeat(1000)]) {
+    const pool = fakePool();
+    await withServer(pool, async (base) => {
+      const res = await fetch(`${base}/api/items`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      assert.equal(res.status, 400, `length ${name.length}`);
+      assert.equal((await res.json()).error, 'name is too long');
+      assert.equal(pool.queries.length, 0);
+    });
+  }
+});
+
+test('POST /api/items accepts a name of exactly 50 characters', async () => {
+  const name = 'b'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await fetch(`${base}/api/items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    assert.equal(res.status, 201);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items inserts a padded 50-character name trimmed', async () => {
+  const pool = fakePool([{ id: 1, name: 'd'.repeat(50), created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await fetch(`${base}/api/items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '   ' + 'd'.repeat(50) + '  ' }),
+    });
+    assert.equal(res.status, 201);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, ['d'.repeat(50)]);
+  });
+});
+
+test('POST /api/items rejects a padded 51-character name and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await fetch(`${base}/api/items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '  ' + 'e'.repeat(51) + ' ' }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).error, 'name is too long');
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
 test('GET /api/me without a session returns 401', async () => {
   await withServer(fakePool(), async (base) => {
     const res = await fetch(`${base}/api/me`);
