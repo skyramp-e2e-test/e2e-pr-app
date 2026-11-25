@@ -57,7 +57,7 @@ function createApp({ pool, signingSecret }) {
   });
 
   app.get('/api/me', (req, res) => {
-    if (!req.userEmail) return res.status(401).json({ error: 'Not signed in' });
+    if (!req.userEmail) return res.status(401).json({ error: 'You are not signed in' });
     res.json({ email: req.userEmail });
   });
 
