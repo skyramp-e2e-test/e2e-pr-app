@@ -62,6 +62,67 @@ test('POST /api/items creates an item with the trimmed name', async () => {
   });
 });
 
+function postItem(base, body) {
+  return fetch(`${base}/api/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+test('POST /api/items refuses a 51-character name as too long and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name: 'a'.repeat(51) });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'name is too long' });
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items accepts a name of exactly 50 characters', async () => {
+  const name = 'a'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name });
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).name, name);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items measures the limit on the trimmed name and stores it trimmed', async () => {
+  const name = 'b'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name: `   ${name}   ` });
+    assert.equal(res.status, 201);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items refuses a 5000-character name as too long and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name: 'x'.repeat(5000) });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'name is too long' });
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items refuses a padded name whose trimmed length is 51', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name: `  ${'c'.repeat(51)}  ` });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'name is too long' });
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
 test('GET /api/me without a session returns 401', async () => {
   await withServer(fakePool(), async (base) => {
     const res = await fetch(`${base}/api/me`);
