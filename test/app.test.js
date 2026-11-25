@@ -62,6 +62,78 @@ test('POST /api/items creates an item with the trimmed name', async () => {
   });
 });
 
+function postItem(base, name) {
+  return fetch(`${base}/api/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+test('POST /api/items accepts a name of exactly 50 characters', async () => {
+  const name = 'a'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, name);
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).name, name);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items rejects a name of 51 characters and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, 'a'.repeat(51));
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, 'string');
+    assert.notEqual(body.error, '');
+    assert.notEqual(body.error, 'name is required');
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items rejects a 5000-character name the same way as 51 characters', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const justOver = await postItem(base, 'a'.repeat(51));
+    assert.equal(justOver.status, 400);
+    const justOverBody = await justOver.json();
+    const res = await postItem(base, 'x'.repeat(5000));
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, 'string');
+    assert.equal(body.error, justOverBody.error);
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items judges the length on the trimmed name', async () => {
+  const name = 'a'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, `   ${name}   `);
+    assert.equal(res.status, 201);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items rejects a padded name of 51 characters', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, ` ${'a'.repeat(51)} `);
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, 'string');
+    assert.notEqual(body.error, '');
+    assert.notEqual(body.error, 'name is required');
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
 test('GET /api/me without a session returns 401', async () => {
   await withServer(fakePool(), async (base) => {
     const res = await fetch(`${base}/api/me`);
