@@ -68,3 +68,58 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+function postItem(base, body) {
+  return fetch(`${base}/api/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+test('POST /api/items rejects a 51-character name and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name: 'a'.repeat(51) });
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, 'string');
+    assert.ok(body.error.length > 0);
+    assert.notEqual(body.error, 'name is required');
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items accepts and inserts a name of exactly 50 characters', async () => {
+  const name = 'b'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name });
+    assert.equal(res.status, 201);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items measures the limit on the trimmed name', async () => {
+  const name = 'c'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, { name: '  ' + name + '  ' });
+    assert.equal(res.status, 201);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items rejects a 5000-character name the same way as 51, writing nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const short = await postItem(base, { name: 'a'.repeat(51) });
+    const shortBody = await short.json();
+    const res = await postItem(base, { name: 'x'.repeat(5000) });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), shortBody);
+    assert.equal(pool.queries.length, 0);
+  });
+});
