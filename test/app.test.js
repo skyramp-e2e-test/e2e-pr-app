@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src/app');
@@ -66,5 +67,59 @@ test('GET /api/me without a session returns 401', async () => {
   await withServer(fakePool(), async (base) => {
     const res = await fetch(`${base}/api/me`);
     assert.equal(res.status, 401);
+  });
+});
+
+// Signs a value the way cookie-parser's signed cookies are signed
+// (HMAC-SHA256, base64 without padding), as cookie-signature does.
+function sign(value, secret) {
+  const sig = crypto.createHmac('sha256', secret).update(value).digest('base64').replace(/=+$/, '');
+  return `${value}.${sig}`;
+}
+
+function sessionCookie(signed) {
+  return 'session=' + encodeURIComponent(`s:${signed}`);
+}
+
+test('GET /api/me without a session returns the reworded 401 message', async () => {
+  await withServer(fakePool(), async (base) => {
+    const res = await fetch(`${base}/api/me`);
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get('content-type'), /^application\/json/);
+    const body = await res.json();
+    assert.deepEqual(body, { error: 'You are not signed in' });
+    assert.notEqual(body.error, 'Not signed in');
+  });
+});
+
+test('GET /api/me with an invalidly signed session cookie gets the same 401 as no cookie', async () => {
+  await withServer(fakePool(), async (base) => {
+    const noCookie = await fetch(`${base}/api/me`);
+    assert.equal(noCookie.status, 401);
+    const expected = await noCookie.json();
+    assert.deepEqual(expected, { error: 'You are not signed in' });
+
+    const valid = sign('a@b.c', 'test-only');
+    const tampered = valid.slice(0, -1) + (valid.endsWith('A') ? 'B' : 'A');
+    const cookies = {
+      unsigned: 'session=test%40example.com',
+      tampered: sessionCookie(tampered),
+      otherSecret: sessionCookie(sign('a@b.c', 'other-secret')),
+    };
+    for (const [kind, cookie] of Object.entries(cookies)) {
+      const res = await fetch(`${base}/api/me`, { headers: { cookie } });
+      assert.equal(res.status, 401, `${kind} cookie status`);
+      assert.deepEqual(await res.json(), expected, `${kind} cookie body`);
+    }
+  });
+});
+
+test('GET /api/me with a validly signed session cookie returns 200 and the email', async () => {
+  await withServer(fakePool(), async (base) => {
+    const res = await fetch(`${base}/api/me`, {
+      headers: { cookie: sessionCookie(sign('test@example.com', 'test-only')) },
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'test@example.com' });
   });
 });
