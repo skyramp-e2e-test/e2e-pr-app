@@ -68,3 +68,29 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+test('GET /api/items/count returns 500 with the standard error body when the query fails', async () => {
+  const pool = {
+    query: async () => {
+      throw new Error('db down');
+    },
+  };
+  await withServer(pool, async (base) => {
+    const res = await fetch(`${base}/api/items/count`);
+    assert.equal(res.status, 500);
+    assert.deepEqual(await res.json(), { error: 'Internal server error' });
+  });
+});
+
+test('GET /api/items/count returns 0 when there are no items', async () => {
+  const pool = fakePool([{ count: 0 }]);
+  await withServer(pool, async (base) => {
+    const res = await fetch(`${base}/api/items/count`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { count: 0 });
+    assert.equal(pool.queries.length, 1);
+    assert.match(pool.queries[0].sql, /count\(\*\)/i);
+    assert.match(pool.queries[0].sql, /from items/i);
+    assert.equal(pool.queries[0].params, undefined);
+  });
+});
