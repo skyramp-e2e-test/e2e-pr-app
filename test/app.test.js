@@ -68,3 +68,72 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+async function postItem(base, name) {
+  return fetch(`${base}/api/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+test('POST /api/items rejects a 51-character name with 400 and writes nothing', async () => {
+  for (const name of ['a'.repeat(51), 'a b'.repeat(17)]) {
+    assert.equal(name.length, 51);
+    const pool = fakePool();
+    await withServer(pool, async (base) => {
+      const res = await postItem(base, name);
+      assert.equal(res.status, 400);
+      const body = await res.json();
+      assert.equal(typeof body.error, 'string');
+      assert.match(body.error, /long|50|length/i);
+      assert.notEqual(body.error, 'name is required');
+      assert.equal(pool.queries.length, 0);
+    });
+  }
+});
+
+test('POST /api/items creates an item whose name is exactly 50 characters', async () => {
+  const name = 'a'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, name);
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).name, name);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items applies the 50-character limit to the trimmed name', async () => {
+  const fifty = 'a'.repeat(50);
+  const accepted = fakePool([{ id: 1, name: fifty, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(accepted, async (base) => {
+    const res = await postItem(base, `   ${fifty}   `);
+    assert.equal(res.status, 201);
+    assert.equal(accepted.queries.length, 1);
+    assert.deepEqual(accepted.queries[0].params, [fifty]);
+  });
+
+  const rejected = fakePool();
+  await withServer(rejected, async (base) => {
+    const res = await postItem(base, `   ${'a'.repeat(51)}   `);
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.match(body.error, /long|50|length/i);
+    assert.notEqual(body.error, 'name is required');
+    assert.equal(rejected.queries.length, 0);
+  });
+});
+
+test('POST /api/items rejects a 10000-character name before reaching the database', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, 'a'.repeat(10000));
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.match(body.error, /long|50|length/i);
+    assert.notEqual(body.error, 'name is required');
+    assert.equal(pool.queries.length, 0);
+  });
+});
