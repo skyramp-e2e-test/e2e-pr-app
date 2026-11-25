@@ -62,6 +62,59 @@ test('POST /api/items creates an item with the trimmed name', async () => {
   });
 });
 
+function postItem(base, name) {
+  return fetch(`${base}/api/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+async function assertNameTooLong(name) {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, name);
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, 'string');
+    assert.match(body.error, /too long/i);
+    assert.equal(pool.queries.length, 0);
+  });
+}
+
+async function assertNameCreated(sent, stored) {
+  const pool = fakePool([{ id: 1, name: stored, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, sent);
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).name, stored);
+    assert.equal(pool.queries.length, 1);
+    assert.match(pool.queries[0].sql, /^INSERT INTO items/);
+    assert.deepEqual(pool.queries[0].params, [stored]);
+  });
+}
+
+test('POST /api/items rejects a 51-character name with 400 and writes nothing', async () => {
+  await assertNameTooLong('a'.repeat(51));
+});
+
+test('POST /api/items creates an item whose name is exactly 50 characters', async () => {
+  await assertNameCreated('b'.repeat(50), 'b'.repeat(50));
+});
+
+test('POST /api/items does not count surrounding spaces toward the 50-character limit', async () => {
+  await assertNameCreated('   ' + 'c'.repeat(50) + '   ', 'c'.repeat(50));
+});
+
+test('POST /api/items rejects a space-padded 51-character name with 400 and writes nothing', async () => {
+  await assertNameTooLong('  ' + 'd'.repeat(51) + '  ');
+});
+
+test('POST /api/items rejects 51 accented letters and creates 50', async () => {
+  await assertNameTooLong('é'.repeat(51));
+  await assertNameCreated('é'.repeat(50), 'é'.repeat(50));
+});
+
 test('GET /api/me without a session returns 401', async () => {
   await withServer(fakePool(), async (base) => {
     const res = await fetch(`${base}/api/me`);
