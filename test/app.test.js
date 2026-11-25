@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createApp } = require('../src/app');
+const { hashPassword } = require('../src/passwords');
 
 // Stand-in for the pg pool: records queries and returns the given rows.
 function fakePool(rows = []) {
@@ -66,5 +67,58 @@ test('GET /api/me without a session returns 401', async () => {
   await withServer(fakePool(), async (base) => {
     const res = await fetch(`${base}/api/me`);
     assert.equal(res.status, 401);
+  });
+});
+
+test('GET /api/me without a session answers 401 with the reworded JSON error and no email', async () => {
+  await withServer(fakePool(), async (base) => {
+    const res = await fetch(`${base}/api/me`);
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get('content-type'), /^application\/json/);
+    const body = await res.json();
+    assert.deepEqual(Object.keys(body), ['error']);
+    assert.equal(typeof body.error, 'string');
+    assert.notEqual(body.error.trim(), '');
+    assert.notEqual(body.error, 'Not signed in');
+    assert.equal('email' in body, false);
+  });
+});
+
+test('GET /api/me with a tampered or unsigned session cookie answers the same 401 as no cookie', async () => {
+  await withServer(fakePool(), async (base) => {
+    const noCookie = await fetch(`${base}/api/me`);
+    const noCookieBody = await noCookie.json();
+    for (const cookie of [
+      'session=s%3Aattacker%40example.com.badsignature',
+      'session=attacker%40example.com',
+    ]) {
+      const res = await fetch(`${base}/api/me`, { headers: { cookie } });
+      assert.equal(res.status, 401, cookie);
+      const body = await res.json();
+      assert.deepEqual(body, noCookieBody, cookie);
+      assert.equal('email' in body, false, cookie);
+    }
+    assert.equal(noCookie.status, 401);
+    assert.notEqual(noCookieBody.error, 'Not signed in');
+  });
+});
+
+test('GET /api/me with a signed session from POST /login answers 200 with the email', async () => {
+  const pool = fakePool([{ email: 'user@example.com', password_hash: hashPassword('pw') }]);
+  await withServer(pool, async (base) => {
+    const login = await fetch(`${base}/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email: 'user@example.com', password: 'pw' }),
+      redirect: 'manual',
+    });
+    assert.equal(login.status, 303);
+    assert.equal(login.headers.get('location'), '/items');
+    const sessionCookie = login.headers.get('set-cookie').split(';')[0];
+    assert.match(sessionCookie, /^session=s%3A/);
+
+    const res = await fetch(`${base}/api/me`, { headers: { cookie: sessionCookie } });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { email: 'user@example.com' });
   });
 });
