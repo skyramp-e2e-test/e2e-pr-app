@@ -72,6 +72,15 @@ function createApp({ pool, signingSecret }) {
     }
   });
 
+  app.get('/api/items/count', async (_req, res, next) => {
+    try {
+      const { rows } = await pool.query('SELECT count(*)::int AS count FROM items');
+      res.json({ count: rows[0].count });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.post('/api/items', async (req, res, next) => {
     try {
       const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
