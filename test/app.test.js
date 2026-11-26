@@ -68,3 +68,68 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+async function postItem(base, name) {
+  return fetch(`${base}/api/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+}
+
+function assertTooLongError(body) {
+  assert.equal(typeof body.error, 'string');
+  assert.match(body.error, /too long|50 characters|at most 50|max/i);
+}
+
+test('POST /api/items with a 51-character name returns 400 and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, 'a'.repeat(51));
+    assert.equal(res.status, 400);
+    assertTooLongError(await res.json());
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items with a 50-character name creates the item', async () => {
+  const name = 'a'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, name);
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).name, name);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items accepts 50 characters padded with spaces and stores them trimmed', async () => {
+  const name = 'b'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, `  ${name}  `);
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).name, name);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items rejects 51 characters padded with spaces and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, `  ${'b'.repeat(51)}  `);
+    assert.equal(res.status, 400);
+    assertTooLongError(await res.json());
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items with a 500-character name returns 400 and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await postItem(base, 'x'.repeat(500));
+    assert.equal(res.status, 400);
+    assertTooLongError(await res.json());
+    assert.equal(pool.queries.length, 0);
+  });
+});
