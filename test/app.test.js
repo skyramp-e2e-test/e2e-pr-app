@@ -62,6 +62,37 @@ test('POST /api/items creates an item with the trimmed name', async () => {
   });
 });
 
+test('POST /api/items rejects a name of 51 characters and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const res = await fetch(`${base}/api/items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'a'.repeat(51) }),
+    });
+    assert.equal(res.status, 400);
+    const body = await res.json();
+    assert.equal(typeof body.error, 'string');
+    assert.ok(body.error.length > 0);
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items accepts a name of exactly 50 characters', async () => {
+  const name = 'b'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const res = await fetch(`${base}/api/items`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    assert.equal(res.status, 201);
+    assert.equal((await res.json()).name, name);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
 test('GET /api/me without a session returns 401', async () => {
   await withServer(fakePool(), async (base) => {
     const res = await fetch(`${base}/api/me`);
