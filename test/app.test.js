@@ -68,3 +68,15 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+test('GET /items is headed with exactly one h1 reading "Your items"', async () => {
+  await withServer(fakePool(), async (base) => {
+    const res = await fetch(`${base}/items`);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    const headings = [...body.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => m[1].trim());
+    assert.deepEqual(headings, ['Your items']);
+    assert.ok(!body.includes('>My items<'), 'page still reads "My items"');
+    assert.ok(!body.includes('>Items</h1>'), 'page still reads the old "Items" heading');
+  });
+});
