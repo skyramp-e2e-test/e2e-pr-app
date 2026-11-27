@@ -68,3 +68,72 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+async function postItem(base, name) {
+  const res = await fetch(`${base}/api/items`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+test('POST /api/items with a 51-character name returns 400 name is too long and writes nothing', async () => {
+  const pool = fakePool();
+  await withServer(pool, async (base) => {
+    const { status, body } = await postItem(base, 'a'.repeat(51));
+    assert.equal(status, 400);
+    assert.deepEqual(body, { error: 'name is too long' });
+    assert.equal(pool.queries.length, 0);
+  });
+});
+
+test('POST /api/items with a 50-character name creates the item', async () => {
+  const name = 'b'.repeat(50);
+  const pool = fakePool([{ id: 1, name, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(pool, async (base) => {
+    const { status, body } = await postItem(base, name);
+    assert.equal(status, 201);
+    assert.equal(body.name, name);
+    assert.equal(pool.queries.length, 1);
+    assert.deepEqual(pool.queries[0].params, [name]);
+  });
+});
+
+test('POST /api/items checks the length of the trimmed name', async () => {
+  const kept = 'c'.repeat(50);
+  const accepted = fakePool([{ id: 1, name: kept, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(accepted, async (base) => {
+    const { status, body } = await postItem(base, `   ${kept}   `);
+    assert.equal(status, 201);
+    assert.equal(body.name, kept);
+    assert.deepEqual(accepted.queries[0].params, [kept]);
+  });
+
+  const rejected = fakePool();
+  await withServer(rejected, async (base) => {
+    const { status, body } = await postItem(base, `  ${'d'.repeat(51)}  `);
+    assert.equal(status, 400);
+    assert.deepEqual(body, { error: 'name is too long' });
+    assert.equal(rejected.queries.length, 0);
+  });
+});
+
+test('POST /api/items counts each non-ASCII character once: 50 accepted, 51 rejected', async () => {
+  const fifty = 'é'.repeat(50);
+  const accepted = fakePool([{ id: 1, name: fifty, created_at: '2026-01-01T00:00:00Z' }]);
+  await withServer(accepted, async (base) => {
+    const { status, body } = await postItem(base, fifty);
+    assert.equal(status, 201);
+    assert.equal(body.name, fifty);
+    assert.deepEqual(accepted.queries[0].params, [fifty]);
+  });
+
+  const rejected = fakePool();
+  await withServer(rejected, async (base) => {
+    const { status, body } = await postItem(base, 'é'.repeat(51));
+    assert.equal(status, 400);
+    assert.deepEqual(body, { error: 'name is too long' });
+    assert.equal(rejected.queries.length, 0);
+  });
+});
