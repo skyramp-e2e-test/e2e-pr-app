@@ -68,3 +68,16 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+test('GET /items serves the Items page headed "Your items"', async () => {
+  await withServer(fakePool(), async (base) => {
+    const res = await fetch(`${base}/items`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /^text\/html/);
+    const body = await res.text();
+    assert.equal(body.match(/<h1/g).length, 1);
+    assert.match(body, /<h1[^>]*>\s*Your items\s*<\/h1>/);
+    assert.ok(body.includes('<h1 data-testid="items-heading">Your items</h1>'));
+    assert.doesNotMatch(body, /<h1[^>]*>\s*Items\s*<\/h1>/);
+  });
+});
