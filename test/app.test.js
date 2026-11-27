@@ -68,3 +68,34 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+test('GET /api/me without a session answers 401 with the reworded error', async () => {
+  await withServer(fakePool(), async (base) => {
+    const res = await fetch(`${base}/api/me`);
+    assert.equal(res.status, 401);
+    assert.match(res.headers.get('content-type'), /^application\/json/);
+    const body = await res.json();
+    assert.equal(typeof body.error, 'string');
+    assert.ok(body.error.length > 0);
+    assert.notEqual(body.error, 'Not signed in');
+    assert.equal('email' in body, false);
+  });
+});
+
+test('GET /api/me with an unsigned or tampered session cookie answers as without a session', async () => {
+  await withServer(fakePool(), async (base) => {
+    const noCookie = await fetch(`${base}/api/me`);
+    const unsigned = await fetch(`${base}/api/me`, {
+      headers: { Cookie: 'session=test@example.com' },
+    });
+    const tampered = await fetch(`${base}/api/me`, {
+      headers: { Cookie: 'session=s%3Atest%40example.com.badsignature' },
+    });
+    assert.equal(noCookie.status, 401);
+    assert.equal(unsigned.status, 401);
+    assert.equal(tampered.status, 401);
+    const expected = await noCookie.json();
+    assert.deepEqual(await unsigned.json(), expected);
+    assert.deepEqual(await tampered.json(), expected);
+  });
+});
