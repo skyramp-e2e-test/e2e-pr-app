@@ -68,3 +68,14 @@ test('GET /api/me without a session returns 401', async () => {
     assert.equal(res.status, 401);
   });
 });
+
+test('GET /items serves the Items page with a single <h1> reading "Your items"', async () => {
+  await withServer(fakePool(), async (base) => {
+    const res = await fetch(`${base}/items`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /^text\/html/);
+    const html = await res.text();
+    const headings = [...html.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/g)].map((m) => m[1].trim());
+    assert.deepEqual(headings, ['Your items']);
+  });
+});
